@@ -1,4 +1,4 @@
-cpu‿libpaths‿configs‿⟨ShowOut,ErrOut,ErrExit,DepOut⟩ ← •args
+cpu‿libpaths‿configs‿⟨ShowOut,ErrOut,ErrExit,DepOut,srcmap⟩ ← •args
 
 tab‿lf←@+9‿10
 
@@ -32,7 +32,7 @@ Tokenize←{
 
 # Position handler for error reporting
 Source ← { 𝕨 𝕊 src‿lc: file←𝕨⊣""
-  { pos 𝕊 disp:
+  ShowSrc ⇐ { pos 𝕊 disp:
     r‿c←<˘⍉>pos⊏lc
     ErrOut ∾⟨file, ":", •Repr 1+e←¯1⊑r, ":"⟩
     ErrOut src/˜(src=lf)(⊣<+`⊸=)e
@@ -44,8 +44,9 @@ Source ← { 𝕨 𝕊 src‿lc: file←𝕨⊣""
     }
     ErrOut¨ ¯1↓⍟(∧´' '=⊑) disp Tr○((r=e)⊸/) c
   }
+  Info ⇐ {𝕊pos: file<⊸∾pos⊑lc}
 }
-DispSource ← @⊸≢◶⟨ErrOut¨∘"(unknown position!)"‿"", {𝕎𝕩}´⟩
+DispSource ← @⊸≢◶⟨ErrOut¨∘"(unknown position!)"‿"", {𝕩 𝕨.ShowSrc ""¨𝕩}⟜⥊´⟩
 Err ← { (𝕩≠⊸⥊ErrOut‿DispSource) {𝕎𝕩}¨ 𝕩 ⋄ ErrExit@ }
 
 AsrtGotGen ← {𝕊 disp: {𝔽𝕩 ? 𝕩 ; !∾⟨𝕎𝕩," (got ",Disp𝕩,")"⟩}}
@@ -184,6 +185,7 @@ MakeStack ← {𝕤
   Push⇐{   st↩𝕩‿st ⋄ d+↩1}
   Pop ⇐{𝕤⋄ r‿s←st ⋄ st↩s ⋄ d-↩1 ⋄ r}
   Arr ⇐{𝕤⋄ ⊑¨ ⌽ 1⊸⊑⍟(↕d) st}
+  IsEmpty ⇐ {𝕤⋄ d≡0}
   _while_⇐{Pop ⊢ 𝔽 ⊣ ·Push𝕘˙}
 }
 
@@ -197,7 +199,7 @@ MakeStream ← {
   Dec  ⇐ {𝕤⋄i-↩1}
 }
 
-Parse ← {𝕊 tokens‿ShowTrace:
+Parse ← {𝕊 tokens‿sourceInfo:
   sep ← ⟨";", ⥊lf⟩
   ! ⊑ (¯1⊏tokens) ∊ sep
 
@@ -206,8 +208,10 @@ Parse ← {𝕊 tokens‿ShowTrace:
 
   Asrt ← {𝕨𝕊1:@;
     [v, k] ← (<"") ∾˘´ {𝕩⊸•ns.Get¨⊸≍ •ns.Keys 𝕩}¨ c‿tc
-    ShowTrace⟜(v⊸⊐ ⊏ k˙)´ <˘⍉>DumpStack@
+    
+    sourceInfo.ShowSrc⟜(v⊸⊐ ⊏ k˙)´ <˘⍉>DumpStack@
     ErrOut ""
+    
     F ← (⥊lf)⊸≢◶⟨"end of line", =◶⟨"keyword "∾•Repr∘⊑⟜keywords, •Repr⟩⟩
     ErrOut {∾"Expected "‿𝕨‿" but saw "‿𝕩}⟜F´⍟(1<≡) 𝕨
     ErrExit@
@@ -239,7 +243,7 @@ Parse ← {𝕊 tokens‿ShowTrace:
   # Node creation and error tracking
   c ← nodes ⋄ tc ← targetNodes
   ⟨_whileParse_⇐_while_, DumpStack⇐Arr⟩ ← MakeStack@
-  _node_ ← {p←Pos@ ⋄ (ShowTrace⟜(""¨)⥊∘⊢)‿p 𝔽 𝔾_whileParse_⟨p,𝕗⟩ 𝕩}
+  _node_ ← {p←Pos@ ⋄ sourceInfo‿p 𝔽 𝔾_whileParse_⟨p,𝕗⟩ 𝕩}
   AsrtHere ← {𝕨 Asrt _whileParse_ ⟨Pos@,""⟩ 𝕩}
 
   When  ← {Test‿Cont:       ( ⥊∘< Cont)⍟Test   ⟨⟩  }
@@ -845,7 +849,14 @@ functions ← {kname⇐"function"
     }
     ⟨Push,Arr⟩←MakeStack@
     Instrs⇐Arr
-    Append⇐{ current registers.CheckAppend¨ 1↓𝕩 ⋄ Push𝕩 ⋄ @ }
+    Append0 ← { current registers.CheckAppend¨ 1↓𝕩 ⋄ Push 𝕩 ⋄ @ }
+    append⇐{
+      ¬srcmap? Append0;
+      {
+        Append0 ⟨"src"⟩ ∾ (≠∾∾) srcMapStack.Arr@
+        Append0 𝕩
+      }
+    }
     SetRType⇐{
       SetRType↩!∘0 ⋄ "Result" types.ReqTyp rType↩𝕩
       type ↩ ctypes types.Fun rType
@@ -916,6 +927,9 @@ functions ← {kname⇐"function"
     a‿t ← (TypeOf f) types.FnCast 1↓𝕩
     t AppendNew ⟨"call",t,f⟩ ∾ ≠⊸∾ {IsTup𝕩 ? ∾𝕊¨𝕩 ; ⟨𝕩⟩} a
   }
+  srcMapStack ← MakeStack@
+  PushSrc ⇐ { srcMapStack.Push 𝕩 }
+  PopSrc ⇐ {𝕊: srcMapStack.Pop@}
   _instr ← { Append (𝕨𝔽𝕩)<⊸∾𝕨⋈𝕩 ⋄ 𝕩 }
   SetLabel ⇐ "lbl"_instr ⊣ { current.IncLab 𝕩 }
   Goto     ⇐ "goto"⊘"gotoT"_instr
@@ -1150,7 +1164,17 @@ program ← {
     "Exports must be global fixed values" constants.Exportable _asrtGotS 𝕩
   }
   Stack ← {𝕤
-    ⟨_trace_⇐_while_⟩ ⇐ ⟨Dump⇐Arr⟩ ← MakeStack@
+    ⟨_trace0_⇐_while_⟩ ⇐ ⟨Dump⇐Arr⟩ ← MakeStack@
+    trace ⇐ {
+      ¬srcmap? _trace0_;
+      {
+        file‿row‿col ← {𝕨.Info 𝕩}´ 𝕘
+        functions.PushSrc ⟨1+row, 1+col, symbols.New file⟩
+        r ← 𝕨 𝕗 _trace0_ 𝕘 𝕩
+        functions.PopSrc@
+        r
+      }
+    }
     Report ⇐ {𝕤
       ErrOut (∧`lf⊸≠)⊸/⎊•Repr •CurrentError@
       ErrOut ""

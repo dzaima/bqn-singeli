@@ -19,6 +19,7 @@ short‿long‿args‿dup‿desc ← <˘⍉> ⟨
   "p" ‿"pre"   ‿1‿0‿"Preamble placed before C output"
   "n" ‿"name"  ‿1‿0‿"Prefix for names in C output"
   "d" ‿"deplog"‿1‿0‿"Output file for log of included dependencies"
+  "g" ‿"srcmap"‿1‿0‿"Output file for source-mapping info"
 ⟩
 short‿long ∾˜¨⟜<¨↩ "-"‿"--"
 args ∾↩ 0 ⋄ dup ∾↩ 1
@@ -31,7 +32,7 @@ op ⌈↩ c ×¬ <`⊸= op⊏args
 opts ← ((1+c)∾˜f/op) ⊔ ((op=c)(1-˜×⟜(+`))○(∾⟜1)f←¬0»op⊏args) ⊔ •args
 "Option can't be duplicated" ! ∧´ (1≤dup) ≥ 1<≠¨opts
 olist ← (2=dup) (∾','⊸Spl¨)⍟⊣¨ (1⌾(¯1⊸⊑)args) ⊣◶⟨0<≠∘⊢,⊑¨⊢⟩¨ opts
-help‿out‿oe‿os‿run‿target‿feats‿inf‿lib‿config‿pre‿namepre‿deplog‿files ← olist
+help‿out‿oe‿os‿run‿target‿feats‿inf‿lib‿config‿pre‿namepre‿deplog‿srcmap‿files ← olist
 
 { help ?
   opt_help ← ∾¨´ ⟨desc⟩ ∾˜ (1+·⌈´≠¨)⊸(↑¨)¨ short‿long ∾¨¨ ",:"
@@ -70,11 +71,11 @@ DepOut‿DepWrite ← {
 }
 
 arch ← ⟨feats,"strict"≢inf⟩ •Import "arch.bqn"
-outputs ← ShowOut‿ErrOut‿ErrExit‿DepOut
+outputs ← ⟨ShowOut, ErrOut, ErrExit, DepOut, ⟨⟩≢srcmap⟩
 frontend ← arch‿libpaths‿configs‿outputs •Import "singeli.bqn"
 backend ← {
   "ir"≡target ? ⊢ ;
-  par ← ⟨"cpp"≡target,arch,"si"⊣´namepre,outputs⟩
+  par ← ⟨"cpp"≡target,arch,"si"⊣´namepre,outputs,Rel¨ srcmap⟩
   pre ⊑⊸{𝕨⊸𝕏}⍟(0<≠∘⊣) par •Import "emit_c.bqn"
 }
 Output ← {
