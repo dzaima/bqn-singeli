@@ -1,4 +1,4 @@
-cpp‿cpu‿prefix‿⟨·,ErrOut,ErrExit,·,·⟩‿srcmap ← ∾⟜"_"⌾(2⊸⊑) •args
+cpp‿cpu‿prefix‿⟨·,ErrOut,ErrExit,·,·⟩‿map ← ∾⟜"_"⌾(2⊸⊑) •args
 Asrt ← {𝕨𝕊1:𝕩; ·𝕊𝕩:𝕊𝕨;
   ErrOut "Invalid IR, likely implementation bug!"
   ErrOut⍟(0⊸≢) 𝕩 ⋄ ErrExit@
@@ -46,15 +46,13 @@ Generate ← {
   l ← ProcLine¨ lf ((⊢-˜+`×¬)∘=⊔⊢) 𝕩
   "Unclosed function" Asrt 0≡fn
   
-  
-  
-  prelude ← lf Join ("#include"∾("<"∾∾⟜">")⍟('"'≠⊑))¨ types.Headers@
-  post ← { 𝕊⟨⟩: ⊢; 𝕊 ⟨srcpath⟩:
+  srcmap ⇐ @
+  Post ← map { ⟨⟩_𝕣: ⊢; ⟨mapPath⟩_𝕣:
     info ← (⟨99⟩≡1↑⊢)¨ l
     info‿l (¬ ∧⟜« info)⊸/¨ ↩ # remove info lines followed by another info line
     ops ← 1 ⊑¨ info / l
-    l0 ← l
     l ↩ (¬info) / l
+
     {
       tgt ← (info/+`¬info) ⊏ +`(+´lf⊸=)¨ l
       tgt+↩ 1 + 𝕩 -○(+´lf=⊢) ∾l
@@ -63,13 +61,13 @@ Generate ← {
       ops ↩ {m←+´∧`≡¨´ 𝕩↑¨˜⌊´≠¨𝕩 ⋄ ⟨(≠⊑𝕩)-m, m↓1⊑𝕩⟩}¨ <˘ 2↕⟨⟨⟩⟩∾ops # deduplicate equal prefixes # ops ↩ (»≠¨ops) ⋈¨ ops
       r ← ⟨"stack-source-map", •Repr ≠files⟩ ∾ files
       r∾↩ (-⟜» tgt) {';' Join ⟨•Repr 𝕨, •Repr ⊑𝕩⟩ ∾ ∾1⊑𝕩}¨ ops
-      
-      ("// stack-source-map: "∾(srcpath •file.Lines r)∾lf) ∾ 𝕩
+      srcmap ↩ r
+      {∾⟨"// stack-source-map: ", mapPath, lf, 𝕩⟩}⍟(@≢mapPath) 𝕩
     }
-  } srcmap
-  res ← ∾ (𝕨⊣prelude) ((⊣⋈(⊣×1+⊢)○(0<≠)⥊lf˙)∾⊢) (decl.Emit@)∾l
-  
-  Post res
+  }
+
+  prelude ← lf Join ("#include"∾("<"∾∾⟜">")⍟('"'≠⊑))¨ types.Headers@
+  out ⇐ Post ∾ (𝕨⊣prelude) ((⊣⋈(⊣×1+⊢)○(0<≠)⥊lf˙)∾⊢) (decl.Emit@)∾l
 }
 
 StartLine ← { 𝕊 str:

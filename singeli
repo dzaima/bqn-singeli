@@ -46,6 +46,7 @@ inf    "inference"_choices↩ "loose"‿"strict"
 
 Rel ← •wdpath⊸•file.At
 files Rel¨↩
+srcmap Rel¨↩
 
 SplitEq ← (»⊸(⊣-<)·∨`'='⊸=)⊸⊔
 libpaths ← (Rel⌾(1⊸⊑) ¯2 ↑ SplitEq)¨ lib
@@ -64,24 +65,30 @@ _getShows ← {name _𝕣 𝕩:
 ⟨ShowOut,ShowWrite⟩ ← "show{}" _getShows      "stdout" ⊣´ os
 ⟨ErrOut, ErrWrite⟩  ← "error"  _getShows oe ↩ "stderr" ⊣´ oe
 Writes ← ShowWrite ⋈ {⋈∾∾⟜(@+10)¨𝕩}⍟(0<≠)∘ErrWrite
-⟨ErrExit,_withErr⟩ ← { "bqn"≡oe ? ⟨!, {𝔽⎊@}⟩ ; ⟨•Exit∘1 ⊣ Writes, {𝔽}⟩ }
+⟨ErrExit,_withErr⟩ ← { "bqn"≡oe ? ⟨!, {𝔽⎊{𝕊: out⇐@⋄srcmap⇐@}}⟩ ; ⟨•Exit∘1 ⊣ Writes, {𝔽}⟩ }
 DepOut‿DepWrite ← {
   wr ← {⟨⟩:⊢; ⟨p⟩: (Rel p)⊸•file.Lines} deplog
   Save‿Get ← OutBuf@ ⋄ DepOut⇐Save ⋄ DepWrite⇐Wr∘Get
 }
+SrcmapWrite ← {(⊑srcmap) •file.Lines 𝕩}⍟((0<≠srcmap) ∧ @⊸≢)
 
 arch ← ⟨feats,"strict"≢inf⟩ •Import "arch.bqn"
 outputs ← ⟨ShowOut, ErrOut, ErrExit, DepOut, ⟨⟩≢srcmap⟩
 frontend ← arch‿libpaths‿configs‿outputs •Import "singeli.bqn"
 backend ← {
-  "ir"≡target ? ⊢ ;
-  par ← ⟨"cpp"≡target,arch,"si"⊣´namepre,outputs,Rel¨ srcmap⟩
+  "ir"≡target ? {out⇐𝕩 ⋄ srcmap⇐@} ;
+  par ← ⟨"cpp"≡target,arch,"si"⊣´namepre,outputs,srcmap⟩
   pre ⊑⊸{𝕨⊸𝕏}⍟(0<≠∘⊣) par •Import "emit_c.bqn"
 }
 Output ← {
-  ≠out ? (Rel⊑out) •file.Chars ⊢ ;
-  •Out⍟(0<≠) ¯1⊸↓
+  ≠out ? (Rel⊑out) •file.Chars 𝕩.out ;
+  •Out⍟(0<≠) ¯1↓𝕩.out
 }⊸⊢
-Result ← {show‿errout‿deplog‿out⇐𝕩} Writes ∾ DepWrite ⋈ ⊢
+Result ← {
+  show‿errout ⇐ Writes 𝕩
+  deplog ⇐ DepWrite 𝕩
+  out‿srcmap ⇐ 𝕩
+  SrcmapWrite srcmap
+}
 
 Result {Output Backend ∾ Frontend¨ 𝕩}_withErr (<¨run) ∾ files
