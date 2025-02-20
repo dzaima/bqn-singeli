@@ -57,6 +57,20 @@ arches ⇐ ⟨
     mainDefine ⇐ "__riscv_xlen"
     StripDefines ⇐ { "RVV"¨ "__riscv_v"⊸≡¨⊸/ 𝕩 }
   }
+  {
+    name ⇐ "WASM32"
+    width ⇐ 32
+    feats ⇐ name ReadFeats extfile ⇐ "wasm"
+    header ⇐ "wasm_simd128.h"
+    VecType ⇐ {
+      𝕊 ⟨w, ⟨v⟩, u, f⟩:
+        "Vector width must be 128 bits" ! 128 = w×v
+        1‿"v128_t";
+      !"Nested vector type unsupported in wasm"
+    }
+    mainDefine ⇐ "__wasm32__"
+    StripDefines ⇐ ⊢
+  }
 ⟩
 
 # Attempt to get the CPU's native architecture from OS resources
