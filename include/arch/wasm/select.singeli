@@ -1,13 +1,14 @@
 local {
   include 'skin/c'
+  include 'util/tup'
+  include './basic'
   oper ~~ reinterpret infix right 55
   def num{x} = 'number'==kind{x}
-  # def vect{x} = match(x) { {[_]_}=>1; {_}=>0 }
   def all{t} = is{t, 0 <= t}
-  def any{x} = ~all{~x}
+  def any = fold{|,.}
 
   def ew{V} = width{eltype{V}}
-  def va{V} = 'vector'==typekind{V} and 128==width{V}
+  def va{V} = hasarch{'SIMD128'} and 'vector'==typekind{V} and 128==width{V}
   def vi{V} = va{V} and isint{eltype{V}}
   def vs{V} = va{V} and any{tup{'i','f'}==quality{eltype{V}}}
   def vu{V} = va{V} and 'u'==quality{eltype{V}}
@@ -19,7 +20,10 @@ local {
   def uns = change_qual{.,'u'}
   def sgn = change_qual{.,'i'}
 
-  def el_dbl{[k]E} = [k/2](primtype{quality{E}, width{E}*2})
+  def prim_dbl{E}  = primtype{quality{E}, width{E}*2}
+  def prim_half{E} = primtype{quality{E}, width{E}/2}
+  def el_dbl{[k]E} = [k/2]prim_dbl{E}
+  def el_half{[k]E} = [k*2]prim_half{E}
 
   def fmttype{128} = 'v128'
   def fmttype{[k]E} = merge{quality{E}, fmtnat{width{E}}, 'x', fmtnat{k}}
@@ -40,8 +44,8 @@ local {
   
   def nspc # no spec placeholder
   
-  def {has_const_shuf, has_const_sel, do_const_shuf, do_const_sel}
-  def has_const_shuf{spec, {v:[_]_}, inds} = not is{0,tonums{inds}}
+  def {try_const_shuf, try_const_sel}
+  def try_const_shuf{spec, v, inds} = 0#not is{0,tonums{inds}}
   
   def anyeq{v, ...options} = any{each{is{v,.}, options}}
   
@@ -52,45 +56,86 @@ local {
   def tonums{{...vs}   if length{vs}>0 and all{each{num, vs}}} = vs
   def tonums{{{...vs}} if length{vs}>0 and all{each{num, vs}}} = vs
   
-  def sel_spec{V, spec} = match (spec) {
-    {(nspc)} => ew{V}
-    {k if num{k} and anyeq{k, 8,16,32,64}} => k
-    {T if ktyp{T} and typekind{T}=='primitive'} => width{T}
-    {_} => 0
-  }
-  
-  def has_const_sel{..._} = 0
-  def has_const_sel{spec, vs, inds if not is{0,tonums{inds}} and anyeq{length{vs}, 1,2}} = {
+  def try_const_sel{..._} = 0
+  def try_const_sel{spec, vs, inds if not is{0,tonums{inds}} and anyeq{length{vs}, 1,2}} = {
     def inds = tonums{inds}
     def vn = length{vs}
     def V = sametype{vs}
     if (va{V}) {
-      def e = sel_spec{V, spec}
+      def e = match (spec) {
+        {(nspc)} => ew{V}
+        {k if num{k} and anyeq{k, 8,16,32,64}} => k
+        {T if ktyp{T} and typekind{T}=='primitive'} => width{T}
+        {_} => 0
+      }
       if (e != 0 and width{V}/e == length{inds}) {
         def max = vn*width{V} / e
-        all{(((inds>>0) == inds) & (inds >= 0)) & (inds < max)}
+        if (all{(((inds>>0) == inds) & (inds >= 0)) & (inds < max)}) {
+          {} => emit{V, intrin{'shuffle', [width{V}/e]primtype{'i',e}}, ...select{vs, tup{0,-1}}, ...inds}
+        } else 0
       } else 0
     } else 0
   }
-  def do_const_sel{spec, vs, inds} = {
-    def V = sametype{vs} # could do vs={_:V,..._} instead, eh
-    def inds = tonums{inds}
-    def e = sel_spec{V, spec}
-    emit{V, intrin{'shuffle', [width{V}/e]primtype{'i',e}}, ...select{vs, tup{0,-1}}, ...inds}
-  }
   
   def shufsel{is_shuf} = {
-    def has_const = if (is_shuf) has_const_shuf else has_const_sel
-    def do_const  = if (is_shuf)  do_const_shuf else  do_const_sel
+    def try_const = if (is_shuf) try_const_shuf else try_const_sel
+    def has_const{...a} = not is{try_const{...a}, 0}
     
     def me{...spec, val:V=[_]_,                  ind:I if vi{I} and hw{I,8} and check_spec_i8{spec, val, is_shuf}} = swizzle_i8{val, ind}
     def me{...spec, {val:V=[_]_} if not is_shuf, ind:I if vi{I} and hw{I,8} and check_spec_i8{spec, val, is_shuf}} = swizzle_i8{val, ind}
-    def me{      v:V,     ...ind if has_const{nspc, tup{v}, ind}} = do_const{nspc, tup{v}, ind}
-    def me{spec, v:V,     ...ind if has_const{spec, tup{v}, ind}} = do_const{spec, tup{v}, ind}
-    def me{      {...vs}, ...ind if has_const{nspc, vs,     ind}} = do_const{nspc, vs,     ind}
-    def me{spec, {...vs}, ...ind if has_const{spec, vs,     ind}} = do_const{spec, vs,     ind}
+    
+    def wrap = match { {{...t}} => t; {v} => tup{v} }
+    def me{      v, ...ind if has_const{nspc, wrap{v}, ind}} = try_const{nspc, wrap{v}, ind}{}
+    def me{spec, v, ...ind if has_const{spec, wrap{v}, ind}} = try_const{spec, wrap{v}, ind}{}
   }
 }
 
 def vec_shuffle{...} = shufsel{1}
 def vec_select{...} = shufsel{0}
+
+
+
+local def wasm_blend{hom}{f:V=[k]_, t:V, m:M=[k]_ if va{V} and M==uns{V}} = {
+  def i = if (hom and hasarch{'RELAXED_SIMD'}) intrin{'relaxed_laneselect', sgn{V}}
+  else intrin{'bitselect', 128}
+  emit{V, i, f, t, m}
+}
+def blend_bit{...} = wasm_blend{0}
+def blend_hom{...} = wasm_blend{1}
+
+
+
+local def same_el{vs} = match (sametype{vs}) { {[_]E}=>E; {_}=>0 }
+local def narrow_am{D,S,default} = if (not is{S,0} and quality{D}==quality{S}) width{S}/width{D} else default
+local def narrows{D,S} = narrow_am{D,S,0}>=2
+
+local def some_narrow{kind} = { 
+  def {do_trunc, do_sat} = match (kind) {
+    {'trunc'}   => tup{1,0}
+    {'relaxed'} => tup{1,0}
+    {'sat'}     => tup{0,1}
+  }
+  def extend _{n, ntup} = {
+    def ntup{E, {...vs} if is{same_el{vs},E}} = vs
+
+    def ntup{DE, {...vs={_:[_]E,..._} if length{vs}>2} if narrows{DE,same_el{vs}}} = {
+      def ntup = prim_half{E}
+      ntup{DE, join{each{ntup{ntup,.}, split{2, vs}}}}
+    }
+
+    def ntup{DE if isint{DE}, {a:V=[_]E, b:V} if do_trunc and narrows{DE,E}} = {
+      def MV = el_half{V}
+      if (width{E}==64) ntup{DE, tup{MV~~vec_select{u32, tup{a,b}, range{4}*2}}}
+      else ntup{DE, tup{emit{MV, intrin{'narrow_', fmttype{sgn{V}}, MV}, a, b}}}
+    }
+    def ntup{DE, {a:V=[_]E} if do_trunc and narrows{DE,E}} = ntup{DE, tup{a,vec_broadcast{V,0}}}
+    def ntup{DE if isint{DE}, {...vs={_:[k]_,..._} if length{vs}<=2} if do_trunc and narrow_am{DE,same_el{vs},0}>=4} = {
+      tup{vec_select{DE, vs, cycle{128/width{DE}, range{length{vs}*k}*2}}}
+    }
+
+    def n{DE, v:V=[_]E if va{V} and narrow_am{DE,E,0}>=1} = select{ntup{DE, tup{v}}, 0}
+  }
+}
+
+extend (some_narrow{'trunc'  }){narrow_trunc,   narrow_tup_trunc}
+extend (some_narrow{'relaxed'}){narrow_relaxed, narrow_tup_relaxed}
