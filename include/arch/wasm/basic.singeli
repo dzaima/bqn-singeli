@@ -1,0 +1,83 @@
+local {
+  include 'skin/c'
+  oper ~~ reinterpret infix right 55
+  def num{x} = 'number'==kind{x}
+  def all{t} = is{t, 0 <= t}
+  def any{x} = ~all{~x}
+
+  def ew{V} = width{eltype{V}}
+  def va{V} = hasarch{'SIMD128'} and'vector'==typekind{V} and 128==width{V}
+  def vi{V} = va{V} and isint{eltype{V}}
+  def vs{V} = va{V} and any{tup{'i','f'}==quality{eltype{V}}}
+  def vu{V} = va{V} and 'u'==quality{eltype{V}}
+  def vf{V} = va{V} and isfloat{eltype{V}}
+  def hw{[_]E, ...ws} = any{ws == width{E}}
+  def nw{...args} = not hw{...args}
+
+  def change_qual{[k]T,q} = [k]primtype{q, width{T}}
+  def uns = change_qual{.,'u'}
+  def sgn = change_qual{.,'i'}
+  def nu{V} = if (vs{V}) V else sgn{V} # not unsigned
+
+  def el_dbl{[k]E} = [k/2](primtype{quality{E}, width{E}*2})
+
+  def fmttype{128} = 'v128'
+  def fmttype{[k]E} = merge{quality{E}, fmtnat{width{E}}, 'x', fmtnat{k}}
+  def intrin{...rest, V} = merge{'wasm_', fmttype{V}, '_', ...rest}
+}
+
+local {
+  def can_elt = match { {[_]T, x:T} => 1; {_,x} => num{x} }
+  def can_make{V=[k]_, els} = va{V} and k == length{els} and all{each{can_elt{V, .}, els}}
+  
+  def has_shift{s} = 0
+  def has_shift{s if num{s}} = 1
+  def has_shift{s:E if isint{E}} = 1
+}
+
+def make_impl{V=[k]E, els} = emit{V, intrin{if (all{each{num,els}}) 'const' else 'make', V}, ...each{cast{E,.}, els}}
+def vec_make{V,  ...els  if can_make{V, els}} = make_impl{V, els}
+def vec_make{V, {...els} if can_make{V, els}} = make_impl{V, els}
+def vec_broadcast{V=[_]_, x if va{V}} = {
+  if (num{x}) emit{V, intrin{'const_splat', V}, x}
+  else emit{V, intrin{'splat', V}, x}
+}
+
+def load {a:*V=[_]E, n      if va{V}} = emit{V   , intrin{'load',  128}, *void ~~ (a+n)}
+def store{a:*V=[_]E, n, v:V if va{V}} = emit{void, intrin{'store', 128}, *void ~~ (a+n), v}
+
+def  __add{a:V,b:V if va{V}} = emit{V, intrin{'add', nu{V}}, a, b}
+def  __sub{a:V,b:V if va{V}} = emit{V, intrin{'sub', nu{V}}, a, b}
+def  __mul{a:V,b:V if va{V} and nw{V,8}} = emit{V, intrin{'mul', V}, a, b}
+def  __div{a:V,b:V if vf{V}} = emit{V, intrin{'div', V}, a, b}
+def  __and{a:V,b:V if vi{V}} = emit{V, intrin{'and', 128}, a, b}
+def   __or{a:V,b:V if vi{V}} = emit{V, intrin{'or',  128}, a, b}
+def  __xor{a:V,b:V if vi{V}} = emit{V, intrin{'xor', 128}, a, b}
+def andnot{a:V,b:V if vi{V}} = emit{V, intrin{'andnot', 128}, a, b}
+def mulw      {a:V,b:V=[k]E if vi{V} and nw{V,64}} = emit{el_dbl{V}, intrin{'extmul_low_',  fmttype{V}, el_dbl{V}}, a, b}
+def mulw_upper{a:V,b:V=[k]E if vi{V} and nw{V,64}} = emit{el_dbl{V}, intrin{'extmul_high_', fmttype{V}, el_dbl{V}}, a, b}
+
+def  __min{a:V,b:V if va{V}}  = emit{V, intrin{'min', V}, a, b}
+def  __max{a:V,b:V if va{V}}  = emit{V, intrin{'max', V}, a, b}
+
+def __adds{a:V,b:V if vi{V} and hw{V,8,16}} = emit{V, intrin{'add_sat', V}, a, b}
+def __subs{a:V,b:V if vi{V} and hw{V,8,16}} = emit{V, intrin{'sub_sat', V}, a, b}
+
+
+def __shl{a:V, s if vi{V} and has_shift{s}} = emit{V, intrin{'shl', sgn{V}}, a, s};
+def __shr{a:V, s if vi{V} and has_shift{s}} = emit{V, intrin{'shr', V}, a, s};
+
+def __not{a:V if vi{V}} = emit{V, intrin{'not', 128}, a}
+def __neg{a:V if va{V}} = emit{V, intrin{'neg', nu{V}}, a}
+def __sqrt {a:V if vf{V}} = emit{V, intrin{'sqrt', V}, a}
+def __floor{a:V if vf{V}} = emit{V, intrin{'floor', V}, a}
+def __ceil {a:V if vf{V}} = emit{V, intrin{'ceil', V}, a}
+def __abs  {a:V if vs{V}} = emit{V, intrin{'abs', V}, a}
+def addpw{a:V=[k]E if hw{V,8,16}} = { def D = el_dbl{V}; emit{D, intrin{'extadd_pairwise_', fmttype{V}, D}, a} }
+
+def __eq{a:V,b:V if va{V}} = emit{uns{V}, intrin{'eq', nu{V}}, a, b}
+def __ne{a:V,b:V if va{V}} = emit{uns{V}, intrin{'ne', nu{V}}, a, b}
+def __ge{a:V,b:V if va{V}} = emit{uns{V}, intrin{'ge', V}, a, b}
+def __gt{a:V,b:V if va{V}} = emit{uns{V}, intrin{'gt', V}, a, b}
+def __lt{a:V,b:V if va{V}} = emit{uns{V}, intrin{'lt', V}, a, b}
+def __le{a:V,b:V if va{V}} = emit{uns{V}, intrin{'le', V}, a, b}
