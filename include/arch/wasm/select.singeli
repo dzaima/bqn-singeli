@@ -1,0 +1,96 @@
+local {
+  include 'skin/c'
+  oper ~~ reinterpret infix right 55
+  def num{x} = 'number'==kind{x}
+  # def vect{x} = match(x) { {[_]_}=>1; {_}=>0 }
+  def all{t} = is{t, 0 <= t}
+  def any{x} = ~all{~x}
+
+  def ew{V} = width{eltype{V}}
+  def va{V} = 'vector'==typekind{V} and 128==width{V}
+  def vi{V} = va{V} and isint{eltype{V}}
+  def vs{V} = va{V} and any{tup{'i','f'}==quality{eltype{V}}}
+  def vu{V} = va{V} and 'u'==quality{eltype{V}}
+  def vf{V} = va{V} and isfloat{eltype{V}}
+  def hw{[_]E, ...ws} = any{ws == width{E}}
+  def nw{...args} = not hw{...args}
+
+  def change_qual{[k]T,q} = [k]primtype{q, width{T}}
+  def uns = change_qual{.,'u'}
+  def sgn = change_qual{.,'i'}
+
+  def el_dbl{[k]E} = [k/2](primtype{quality{E}, width{E}*2})
+
+  def fmttype{128} = 'v128'
+  def fmttype{[k]E} = merge{quality{E}, fmtnat{width{E}}, 'x', fmtnat{k}}
+  def intrin{...rest, V} = merge{'wasm_', fmttype{V}, '_', ...rest}
+}
+
+local {
+  include 'util/kind'
+  def swizzle_i8{a:V, s} = emit{V, intrin{'swizzle', [16]i8}, a, s}
+  def check_spec_i8{spec, val:V=[_]E, shuf} = {
+    match (...spec) {
+      {} => width{E}==8
+      {(if (shuf) 16 else 8)} => 1
+      {V=[_]_ if shuf and hw{V,8}} => 1
+      {T} => ktyp{T} and width{T}==8
+    }
+  }
+  
+  def nspc # no spec placeholder
+  
+  def {has_const_shuf, has_const_sel, do_const_shuf, do_const_sel}
+  def has_const_shuf{spec, {v:[_]_}, inds} = not is{0,tonums{inds}}
+  
+  def anyeq{v, ...options} = any{each{is{v,.}, options}}
+  
+  def sametype{_} = 0
+  def sametype{{h:V, ...t} if all{each{hastype{.,V}, t}}} = V
+  
+  def tonums{_} = 0
+  def tonums{{...vs}   if length{vs}>0 and all{each{num, vs}}} = vs
+  def tonums{{{...vs}} if length{vs}>0 and all{each{num, vs}}} = vs
+  
+  def sel_spec{V, spec} = match (spec) {
+    {(nspc)} => ew{V}
+    {k if num{k} and anyeq{k, 8,16,32,64}} => k
+    {T if ktyp{T} and typekind{T}=='primitive'} => width{T}
+    {_} => 0
+  }
+  
+  def has_const_sel{..._} = 0
+  def has_const_sel{spec, vs, inds if not is{0,tonums{inds}} and anyeq{length{vs}, 1,2}} = {
+    def inds = tonums{inds}
+    def vn = length{vs}
+    def V = sametype{vs}
+    if (va{V}) {
+      def e = sel_spec{V, spec}
+      if (e != 0 and width{V}/e == length{inds}) {
+        def max = vn*width{V} / e
+        all{(((inds>>0) == inds) & (inds >= 0)) & (inds < max)}
+      } else 0
+    } else 0
+  }
+  def do_const_sel{spec, vs, inds} = {
+    def V = sametype{vs} # could do vs={_:V,..._} instead, eh
+    def inds = tonums{inds}
+    def e = sel_spec{V, spec}
+    emit{V, intrin{'shuffle', [width{V}/e]primtype{'i',e}}, ...select{vs, tup{0,-1}}, ...inds}
+  }
+  
+  def shufsel{is_shuf} = {
+    def has_const = if (is_shuf) has_const_shuf else has_const_sel
+    def do_const  = if (is_shuf)  do_const_shuf else  do_const_sel
+    
+    def me{...spec, val:V=[_]_,                  ind:I if vi{I} and hw{I,8} and check_spec_i8{spec, val, is_shuf}} = swizzle_i8{val, ind}
+    def me{...spec, {val:V=[_]_} if not is_shuf, ind:I if vi{I} and hw{I,8} and check_spec_i8{spec, val, is_shuf}} = swizzle_i8{val, ind}
+    def me{      v:V,     ...ind if has_const{nspc, tup{v}, ind}} = do_const{nspc, tup{v}, ind}
+    def me{spec, v:V,     ...ind if has_const{spec, tup{v}, ind}} = do_const{spec, tup{v}, ind}
+    def me{      {...vs}, ...ind if has_const{nspc, vs,     ind}} = do_const{nspc, vs,     ind}
+    def me{spec, {...vs}, ...ind if has_const{spec, vs,     ind}} = do_const{spec, vs,     ind}
+  }
+}
+
+def vec_shuffle{...} = shufsel{1}
+def vec_select{...} = shufsel{0}
