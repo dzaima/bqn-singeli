@@ -3,6 +3,7 @@ local {
   include 'util/kind'
   oper ~~ reinterpret infix right 55
   def base{b,{}} = 0; def base{b,{h,...t}} = h + b*base{b,t}
+  def base{b,{}} = 0; def base{b,{h,...t}} = { def r = h + b*base{b,t}; def 1 = r<256; r }
   def all{t} = is{t, 0 <= t}
 
   def fmtwidth{V} = fmtnat{width{V}}
@@ -53,7 +54,12 @@ local def vec_shuffle_impl{T, sel_n, val={_:V, ..._}, ind} = {
   def wv= width{V}
   def sel_width = sel_n * w
   def ind_width = length{ind} * w
+  def 1 = sel_width==ind_width # not bothering with whatever happens when this is the case
   def 0 = wv % ind_width
+  def a5{ext} = wv<512 or hasarch{ext}
+  def permutexvar{q, cond}{if cond} = shuf_make{tup{'swap','permutexvar'}, primtype{q,w}, wv/w, primtype{'i',w}}
+  def no_match{} = match('vec_shuffle', [sel_n]T, [wv/width{T}]T,w){}
+  
   # Index expansion and instruction calls
   def get_ind{sel_n, n, ind} = {
     def exp{i} = if (n <= length{i}) i else exp{merge{i, i}}
@@ -63,6 +69,9 @@ local def vec_shuffle_impl{T, sel_n, val={_:V, ..._}, ind} = {
   def shuf_sub{I, name, ind, val} = {
     emit{V, intrin{name, [wv/width{I}]I}, ...val, ind}
   }
+  def shuf_sub{I, {'swap',name}, ind, val} = {
+    emit{V, intrin{name, [wv/width{I}]I}, ind, ...val}
+  }
   def shuf{name, n, fmt} = shuf_sub{T, name, fmt{get_ind{sel_n, n, ind}}, val}
   def shuf{name, E, n, fmt} = {
     def e = w / width{E}
@@ -70,6 +79,7 @@ local def vec_shuffle_impl{T, sel_n, val={_:V, ..._}, ind} = {
     shuf_sub{E, name, fmt{get_ind{e*sel_n, n, wi}}, val}
   }
   def shuf_base{...a, n   } = shuf{...a, n, base{n, .}}
+  # def shuf_base{...a, n   } = shuf{...a, n, {i} => { def r = base{n, i}; def 1 = r<256; r; }}
   def shuf_make{...a, n, T} = shuf{...a, n, vec_make{[n]T, .}}
   # Arch-specific cases
   if (sel_n == 1 and 1 == length{val}) {
@@ -80,7 +90,7 @@ local def vec_shuffle_impl{T, sel_n, val={_:V, ..._}, ind} = {
   } else if (wv < 128) {
     def 1 = wv == 64 and isint{T} and w >= 16 and pos
     shuf_base{'shuffle', 4}
-  } else if (sel_width == 256) {
+  } else if (sel_width == 256 and wv == 256 and w>=32) {
     def 1 = hasarch{'AVX2'} and pos
     match (w) {
       {32} => shuf_make{'permutevar8x32', 8, u32}
@@ -90,29 +100,43 @@ local def vec_shuffle_impl{T, sel_n, val={_:V, ..._}, ind} = {
     def 1 = pos  # Zeroing unsupported for float selection
     if (ind_width == 256) {
       def 1 = hasarch{'AVX'}
-      if (sel_width == 128 and w == 64) {
-        shuf{'permute', 2, {t} => base{2, t%2}}
-      } else {
-        def n = 256 / w
-        def U = [n]primtype{'u', w}
-        shuf{'permutevar', n, {i} => vec_make{U, (w/32)*i}}
+      match () {
+        {if sel_width == 128 and w == 64} => shuf{'permute', 2, {t} => base{2, t%2}}
+        {if sel_width == 128} => {
+          def n = wv / w
+          def U = [n]primtype{'u', w}
+          shuf{'permutevar', n, {i} => vec_make{U, (w/32)*i}}
+        }
+        {if w==64 and wv==512 and sel_width==256} => shuf{'permutex', 4, {t} => base{4, t}}
+        (permutexvar{'f', hasarch{'AVX512F'}})
+        (no_match)
       }
     } else {
       def n = 128 / w
-      if (hasarch{'AVX'}) shuf{'permute', n, {t} => base{n, if (n==2 and wv>128) merge{t,t} else t}}
-      else shuf_sub{T, 'shuffle', base{n, get_ind{sel_n, n, ind}}, merge{val,val}}
+      match () {
+        {if hasarch{'AVX'} and sel_width<=128} => shuf{'permute', n, {t} => base{n, join{copy{if (n==4) 1 else wv/128, t}}}}
+        {if sel_width<=128} => shuf_sub{T, 'shuffle', base{n, get_ind{sel_n, n, ind}}, merge{val,val}}
+        {if w==64 and wv==512 and sel_width==256} => shuf{'permutex', 4, {t} => base{4, t}}
+        (permutexvar{'f', hasarch{'AVX512F'}})
+        (no_match)
+      }
     }
   } else { # isint{T}
     def 1 = hasarch{'SSE2'}
     match () {
-      {if w >= 32 and pos}  => shuf_base{'shuffle', i32, 4}
-      {if hasarch{'SSSE3'}} => shuf_make{'shuffle', i8, wv/8, i8}
-      {if w >= 16 and sel_width <= 64 and pos} => {
+      {if w >= 32 and pos and sel_width<=128}  => shuf_base{'shuffle', i32, 4}
+      {if hasarch{'SSSE3'} and sel_width<=128 and a5{'AVX512BW'}} => shuf_make{'shuffle', i8, wv/8, i8}
+      {if w >= 16 and sel_width <= 64 and pos and a5{'AVX512BW'}} => {
         def io = get_ind{w/16 * sel_n, 4, ind}
         def i = io - (range{length{io}} & -4) # Avoid passing offset indices to shufflehi
         def fi{v, s, ...bnd} = vec_shuffle16_impl{s, v, slice{i, ...bnd}}
         fi{fi{...val, 'lo',0,4}, 'hi',-4}
       }
+      {if w==64 and wv==512 and sel_width==256} => shuf{'permutex', 4, {t} => base{4, t}}
+      (permutexvar{'i', w>=32 and hasarch{'AVX512F'}})
+      (permutexvar{'i', w==16 and hasarch{'AVX512BW'}})
+      (permutexvar{'i', w==8 and hasarch{'AVX512VBMI'}})
+      (no_match)
     }
   }
 }
@@ -213,6 +237,7 @@ def vec_select{128, v={a:V=[_]T, b:V}, ind={_,_} if 256==width{V} and hasarch{'A
   def name = merge{'permute2', q, '128'}
   emit{V, intrin_b{name, V}, a, b, base{16, ind}}
 }
+def vec_select{128, x:V if width{V}==512, is if hasarch{'AVX512F'}} = emit{V, '_mm512_shuffle_i64x2', x, x, base{4, is}}
 
 # Reverse-units for compatibility with NEON
 def reverse_units{n, x:[l]_ if knum{n} and n>1 and l%n == 0} = {
