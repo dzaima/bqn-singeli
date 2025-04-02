@@ -1,0 +1,49 @@
+include '../base'
+include 'arch/wasm/basic'
+include 'arch/wasm/select'
+
+main() : i32 = {
+  
+  def test_shufsel8{vec_0, ind_tup, inds, exp, already_8} = {
+    @for_tup(arg in tup{vec_0, tup{vec_0}}, istup in tup{0,1} over '!') {
+      @for_tup(G in tup{vec_shuffle, vec_select}, shuf in tup{1,0} over '!') {
+        def test{G}{...args} = {
+          if (shuf and istup) test_no_case{G}{...args}
+          else test_exp{exp, G}{...args}
+        }
+        
+        if (already_8) test{G}{arg, inds}
+        test{G}{u8, arg, inds}
+        if (shuf) {
+          test{vec_shuffle}{16, arg, inds}
+          test{vec_shuffle}{[16]u8, arg, inds}
+        } else {
+          test{vec_select}{8, arg, inds}
+          test{vec_select}{8, arg, ind_tup}
+          # test{vec_select}{123, arg, ind_tup}
+          test{vec_select}{u8, arg, ind_tup}
+        }
+      }
+    }
+  }
+  
+  if (1) {
+    def vec = vec_make{[16]u8, range{16}*11}
+    def ind_tup = (15-range{16}) ^ 3
+    def inds = vec_make{[16]u8, ind_tup}
+    def exp = vec_make{[16]u8, ((15-range{16}) ^ 3)*11}
+    test_shufsel8{vec, ind_tup, inds, exp, 1}
+  }
+  
+  if (1) {
+    def vec_tup = tup{3,1,4,1,5,9,2,6}*1111
+    def vec_0 = vec_make{[8]i16, vec_tup}
+    def ind_tup = (15-range{16}) ^ 1
+    def inds = vec_make{[16]u8, ind_tup}
+    def exp = vec_make{[8]i16, select{vec_tup, 7-range{8}}}
+    test_shufsel8{vec_0, ind_tup, inds, exp, 0}
+  }
+  
+  lprintf{'pass'}
+  0
+}
