@@ -38,21 +38,23 @@ local {
 def make_impl{V=[k]E, els} = emit{V, intrin{if (all{each{num,els}}) 'const' else 'make', V}, ...each{cast{E,.}, els}}
 def vec_make{V,  ...els  if can_make{V, els}} = make_impl{V, els}
 def vec_make{V, {...els} if can_make{V, els}} = make_impl{V, els}
-def vec_broadcast{V=[_]_, x if va{V}} = {
+def vec_broadcast{V=[_]E, x if va{V}} = {
+  def e = cast{E, x} # not used in const_splat case, but still ensures an error if the constant doesn't fit
   if (num{x}) emit{V, intrin{'const_splat', V}, x}
-  else emit{V, intrin{'splat', V}, x}
+  else emit{V, intrin{'splat', V}, e}
 }
+def extract{x:V=[k]E, i if va{V} and i < k} = emit{E, intrin{'extract_lane', V}, x, i}
 
 def load {a:*V=[_]E, n      if va{V}} = emit{V   , intrin{'load',  128}, *void ~~ (a+n)}
 def store{a:*V=[_]E, n, v:V if va{V}} = emit{void, intrin{'store', 128}, *void ~~ (a+n), v}
 
 def  __add{a:V,b:V if va{V}} = emit{V, intrin{'add', nu{V}}, a, b}
 def  __sub{a:V,b:V if va{V}} = emit{V, intrin{'sub', nu{V}}, a, b}
-def  __mul{a:V,b:V if va{V} and nw{V,8}} = emit{V, intrin{'mul', V}, a, b}
+def  __mul{a:V,b:V if va{V} and nw{V,8}} = emit{V, intrin{'mul', nu{V}}, a, b}
 def  __div{a:V,b:V if vf{V}} = emit{V, intrin{'div', V}, a, b}
-def  __and{a:V,b:V if vi{V}} = emit{V, intrin{'and', 128}, a, b}
-def   __or{a:V,b:V if vi{V}} = emit{V, intrin{'or',  128}, a, b}
-def  __xor{a:V,b:V if vi{V}} = emit{V, intrin{'xor', 128}, a, b}
+def  __and{a:V,b:V if va{V}} = emit{V, intrin{'and', 128}, a, b}
+def   __or{a:V,b:V if va{V}} = emit{V, intrin{'or',  128}, a, b}
+def  __xor{a:V,b:V if va{V}} = emit{V, intrin{'xor', 128}, a, b}
 def andnot{a:V,b:V if vi{V}} = emit{V, intrin{'andnot', 128}, a, b}
 def mulw      {a:V,b:V=[k]E if vi{V} and nw{V,64}} = emit{el_dbl{V}, intrin{'extmul_low_',  fmttype{V}, el_dbl{V}}, a, b}
 def mulw_upper{a:V,b:V=[k]E if vi{V} and nw{V,64}} = emit{el_dbl{V}, intrin{'extmul_high_', fmttype{V}, el_dbl{V}}, a, b}

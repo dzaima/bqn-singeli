@@ -19,6 +19,7 @@ local {
   def change_qual{[k]T,q} = [k]primtype{q, width{T}}
   def uns = change_qual{.,'u'}
   def sgn = change_qual{.,'i'}
+  def int_idx{inds, max} = (((inds>>0) == inds) & (inds >= 0)) & (inds < max)
 
   def prim_dbl{E}  = primtype{quality{E}, width{E}*2}
   def prim_half{E} = primtype{quality{E}, width{E}/2}
@@ -49,8 +50,8 @@ local {
   
   def anyeq{v, ...options} = any{each{is{v,.}, options}}
   
-  def sametype{_} = 0
-  def sametype{{h:V, ...t} if all{each{hastype{.,V}, t}}} = V
+  def same_type{_} = 0
+  def same_type{{h:V, ...t} if all{each{hastype{.,V}, t}}} = V
   
   def tonums{_} = 0
   def tonums{{...vs}   if length{vs}>0 and all{each{num, vs}}} = vs
@@ -60,7 +61,7 @@ local {
   def try_const_sel{spec, vs, inds if not is{0,tonums{inds}} and anyeq{length{vs}, 1,2}} = {
     def inds = tonums{inds}
     def vn = length{vs}
-    def V = sametype{vs}
+    def V = same_type{vs}
     if (va{V}) {
       def e = match (spec) {
         {(nspc)} => ew{V}
@@ -95,17 +96,17 @@ def vec_select{...} = shufsel{0}
 
 
 
-local def wasm_blend{hom}{f:V=[k]_, t:V, m:M=[k]_ if va{V} and M==uns{V}} = {
+local def wasm_blend{hom}{f:V=[k]_, t:V, m:M=[k]_ if va{V} and vi{M}} = {
   def i = if (hom and hasarch{'RELAXED_SIMD'}) intrin{'relaxed_laneselect', sgn{V}}
   else intrin{'bitselect', 128}
-  emit{V, i, f, t, m}
+  emit{V, i, t, f, m}
 }
 def blend_bit{...} = wasm_blend{0}
 def blend_hom{...} = wasm_blend{1}
 
 
 
-local def same_el{vs} = match (sametype{vs}) { {[_]E}=>E; {_}=>0 }
+local def same_el{vs} = match (same_type{vs}) { {[_]E}=>E; {_}=>0 }
 local def narrow_am{D,S,default} = if (not is{S,0} and quality{D}==quality{S}) width{S}/width{D} else default
 local def narrows{D,S} = narrow_am{D,S,0}>=2
 
@@ -139,3 +140,25 @@ local def some_narrow{kind} = {
 
 extend (some_narrow{'trunc'  }){narrow_trunc,   narrow_tup_trunc}
 extend (some_narrow{'relaxed'}){narrow_relaxed, narrow_tup_relaxed}
+
+def vec_merge_shift_left_128 {x:V=[k]_, y:V, n if va{V}} = vec_select{tup{x,y}, range{k}+n}
+def vec_merge_shift_right_128{x:V=[k]_, y:V, n if va{V}} = vec_select{tup{x,y}, range{k}+k-n}
+def vec_shift_left_128 {x:V, n if va{V}} = vec_merge_shift_left_128 {x, vec_broadcast{V,0}, n}
+def vec_shift_right_128{x:V, n if va{V}} = vec_merge_shift_right_128{vec_broadcast{V,0}, x, n}
+
+def vec_shift_left {...} = vec_shift_left_128
+def vec_shift_right{...} = vec_shift_right_128
+def vec_merge_shift_left {...} = vec_merge_shift_left_128
+def vec_merge_shift_right{...} = vec_merge_shift_right_128
+
+def unzip128{a:V=[k]_, b:V, i if va{V} and int_idx{i,2}} = vec_select{tup{a,b}, range{k}*2 + i}
+def   zip128{a:V=[k]_, b:V, i if va{V} and int_idx{i,2}} = vec_select{tup{a,b}, flat_table{+, range{k/2}, tup{0,k}} + i*k/2}
+
+def unzip{a:V, b:V, i if va{V}} = unzip128{a,b,i}
+def   zip{a:V, b:V, i if va{V}} =   zip128{a,b,i}
+
+def reverse_units{n, x:[l]_ if knum{n} and n>1 and l%n == 0} = {
+  vec_shuffle{x, n-1 - range{n}}
+}
+def blend_units{f:V=[k]_, t:V, ...m if all{int_idx{m,2}} and k%length{m}==0} = blend_units{f, t, m}
+def blend_units{f:V=[k]_, t:V,    m if all{int_idx{m,2}} and k%length{m}==0} = blend_hom{f, t, -vec_make{uns{V}, cycle{k,m}}}
