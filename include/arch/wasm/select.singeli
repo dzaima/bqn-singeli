@@ -45,9 +45,6 @@ local {
   
   def nspc # no spec placeholder
   
-  def {try_const_shuf, try_const_sel}
-  def try_const_shuf{spec, v, inds} = 0#not is{0,tonums{inds}}
-  
   def anyeq{v, ...options} = any{each{is{v,.}, options}}
   
   def same_type{_} = 0
@@ -71,9 +68,30 @@ local {
       }
       if (e != 0 and width{V}/e == length{inds}) {
         def max = vn*width{V} / e
-        if (all{(((inds>>0) == inds) & (inds >= 0)) & (inds < max)}) {
+        if (all{int_idx{inds, max}}) {
           {} => emit{V, intrin{'shuffle', [width{V}/e]primtype{'i',e}}, ...select{vs, tup{0,-1}}, ...inds}
         } else 0
+      } else 0
+    } else 0
+  }
+  
+  def try_const_shuf{..._} = 0
+  def try_const_shuf{spec, {v:V=[sk]SE}, inds if not is{0,tonums{inds}}} = {
+    def inds = tonums{inds}
+    def ni = length{inds}
+    def vw = width{V}
+    if (va{V}) {
+      def {k,e} = match (spec) { # k: number of elements in sub-unit
+        {(nspc)} => tup{ni, width{SE}}
+        {[k]E} => tup{k, width{E}}
+        {T if ktyp{T} and typekind{T}=='primitive'} => tup{ni, width{T}}
+        {k if num{k} and k <= sk} => tup{k, vw/k}
+        {_} => tup{0,0}
+      }
+      if (k != 0 and vw%k == 0 and ni%k == 0 and all{int_idx{inds, k}}) {
+        def n = vw/e
+        def i2 = cycle{n, inds} + (range{n} & -k)
+        {} => emit{V, intrin{'shuffle', [n]primtype{'i',e}}, v, v, ...i2}
       } else 0
     } else 0
   }
@@ -109,37 +127,42 @@ def blend_hom{...} = wasm_blend{1}
 local def same_el{vs} = match (same_type{vs}) { {[_]E}=>E; {_}=>0 }
 local def narrow_am{D,S,default} = if (not is{S,0} and quality{D}==quality{S}) width{S}/width{D} else default
 local def narrows{D,S} = narrow_am{D,S,0}>=2
+local def unlist{{x}} = x
 
 local def some_narrow{kind} = { 
   def {do_trunc, do_sat} = match (kind) {
     {'trunc'}   => tup{1,0}
-    {'relaxed'} => tup{1,0}
+    {'relaxed'} => tup{1,1}
     {'sat'}     => tup{0,1}
   }
   def extend _{n, ntup} = {
     def ntup{E, {...vs} if is{same_el{vs},E}} = vs
 
-    def ntup{DE, {...vs={_:[_]E,..._} if length{vs}>2} if narrows{DE,same_el{vs}}} = {
-      def ntup = prim_half{E}
-      ntup{DE, join{each{ntup{ntup,.}, split{2, vs}}}}
+    def ntup{DE, {...vs={_:[_]E,..._} if length{vs}>2} if narrows{DE,same_el{vs}}} = { # split ≥3-tuple narrow into chunks; make sure to only do 2x narrowing on chunks to ensure not using unspecified tail
+      def q = prim_half{E}
+      ntup{DE, each{{c} => unlist{ntup{q,c}}, split{2,vs}}}
+    }
+    
+    def ntup{DE if isint{DE}, vs if do_trunc and length{vs}<=2 and narrow_am{DE,same_el{vs},0}>=2} = { # trunc ≤2-tuple base-case
+      def [k0]XE = same_type{vs}
+      def am = narrow_am{DE,XE,0}
+      def k1 = 128/width{DE}
+      tup{[k1]DE~~vec_select{DE, vs, cycle{k1, range{length{vs}*k0} * am}}}
     }
 
-    def ntup{DE if isint{DE}, {a:V=[_]E, b:V} if do_trunc and narrows{DE,E}} = {
+    def ntup{DE if isint{DE}, {a:V=[_]E, b:V} if do_sat and narrows{DE,E} and hw{V,16,32}} = { # sat 2-tuple base-case
       def MV = el_half{V}
-      if (width{E}==64) ntup{DE, tup{MV~~vec_select{u32, tup{a,b}, range{4}*2}}}
-      else ntup{DE, tup{emit{MV, intrin{'narrow_', fmttype{sgn{V}}, MV}, a, b}}}
+      ntup{DE, tup{emit{MV, intrin{'narrow_', fmttype{sgn{V}}, MV}, a, b}}}
     }
-    def ntup{DE, {a:V=[_]E} if do_trunc and narrows{DE,E}} = ntup{DE, tup{a,vec_broadcast{V,0}}}
-    def ntup{DE if isint{DE}, {...vs={_:[k]_,..._} if length{vs}<=2} if do_trunc and narrow_am{DE,same_el{vs},0}>=4} = {
-      tup{vec_select{DE, vs, cycle{128/width{DE}, range{length{vs}*k}*2}}}
-    }
-
-    def n{DE, v:V=[_]E if va{V} and narrow_am{DE,E,0}>=1} = select{ntup{DE, tup{v}}, 0}
+    def ntup{DE if narrows{DE,E}, {a:V=[_]E} if do_sat} = ntup{DE, tup{a,a}} # upgrade 1-tuple to 2-tuple for sat
+    
+    def n{DE, v:V=[_]E if va{V} and narrow_am{DE,E,0}>=1} = unlist{ntup{DE, tup{v}}}
   }
 }
 
 extend (some_narrow{'trunc'  }){narrow_trunc,   narrow_tup_trunc}
 extend (some_narrow{'relaxed'}){narrow_relaxed, narrow_tup_relaxed}
+extend (some_narrow{'sat'    }){narrow_sat,     narrow_tup_sat}
 
 def vec_merge_shift_left_128 {x:V=[k]_, y:V, n if va{V}} = vec_select{tup{x,y}, range{k}+n}
 def vec_merge_shift_right_128{x:V=[k]_, y:V, n if va{V}} = vec_select{tup{x,y}, range{k}+k-n}
