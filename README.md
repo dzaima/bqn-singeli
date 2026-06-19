@@ -292,7 +292,7 @@ In any `if` or `while` condition, the pseudo-operators `and`, `or`, and `not` ca
 
 ### For loops
 
-A for "loop" looks a lot like the for-each loops that are becoming common in high-level as well as low-level languages. Appearances are decieving, since it's really a special kind of generator call that can evaluate the block when it executes. But it covers the for-each functionality pretty well, with the right `for` generator.
+A for "loop" looks a lot like the for-each loops that are becoming common in high-level as well as low-level languages. Appearances are deceiving, since it's really a special kind of generator call that can evaluate the block when it executes. But it covers the for-each functionality pretty well, with the right `for` generator.
 
     # Loop over three pointers with a specific range
     # Expressions in the descriptor like len/2 are only evaluated once
@@ -540,7 +540,6 @@ Possible `kind` results are `number`, `constant`, `symbol`, `tuple`, `generator`
 | `width{type}`    | The number of bits taken up by `type`
 | `eltype{type}`   | The underlying type of a vector or pointer type
 | `vcount{[n]t}`   | The number of elements `n` in a vector type
-| `cast{type,val}` | `val` converted to the given type
 | `quality{type}`  | Quality of primitive type: unsigned `'u'`, int `'i'`, or float `'f'`
 | `isfloat{type}`  | 1 if `type` is floating point and 0 otherwise
 | `issigned{type}` | 1 if `type` is signed integer and 0 otherwise
