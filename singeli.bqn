@@ -621,9 +621,15 @@ types ← {kname⇐"type"
   primTypes ⇐ void ∾ tPRIM New¨ qw ← ∾⋈¨¨˝⍉ ∘‿2⥊⟨
     'u', 2⋆0∾3+↕4  # 1/8/16/32/64
     'i', 2⋆  3+↕4  #   8/16/32/64
-    'f', 2⋆  5+↕2  #        32/64
+    'f', 2⋆  4+↕3  #     16/32/64
   ⟩
-  _getPrim ← {{𝕏@} (⟨!∘𝕗⟩«primTypes) ⊑˜ qw⊸⊐⌾<}
+  primMap ← qw •HashMap 1↓primTypes
+  _getPrim ← { msg _𝕣:
+    ⊢ {𝕏𝕨} {
+      q‿w: ∨´q="ui"? w≥1? 0=1|w? r ← tPRIM New 𝕩 ⋄ 𝕩 primMap.Set r ⋄ r
+      ; !msg
+    }˙ primMap.Get ⊢
+  }
 
   Is ← kname≡Kind
   ReqTyp ⇐ {"Expected type";𝕨∾" type wasn't type"˙} Is _asrtGotS ⊢
@@ -694,8 +700,15 @@ types ← {kname⇐"type"
       0
     ⟩ _cases 𝕩
   }
+  floatMantissa ← 16‿32‿64 •HashMap 11‿24‿53
+  cmpImpls ← •HashMap´ <˘⍉> ⟨
+    ⟨"ui", <○(¯1⊸⊑)⟩
+    ⟨"if", {(¯1⊑𝕨) ≤ 1+floatMantissa.Get ¯1⊑𝕩}⟩
+    ⟨"uf", {(¯1⊑𝕨) ≤   floatMantissa.Get ¯1⊑𝕩}⟩
+  ⟩
   _cmpPrim ← {
-    L←¯1⊸⊑ ⋄ ≠○⊑◶⟨𝔽○L, ('f'≠⊑∘⊣)_and_('u'≠⊑∘⊢)_and_(<○L)⟩
+    # L←¯1⊸⊑ ⋄ ≠○⊑◶⟨𝔽○L, ⟩
+    L←¯1⊸⊑ ⋄ ≠○⊑◶⟨𝔽○L, ⋈ {𝕏´𝕨} 0 cmpImpls.Get ⋈○⊑⟩
   }
   Equiv    ← ≡          _typeRel_ @
   Subtype  ⇐ ≤ _cmpPrim _typeRel_ 1
