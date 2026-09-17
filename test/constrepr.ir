@@ -1,0 +1,21 @@
+beginFn f0_big_nums void 0
+new v0_values val u64 !20015998341411:u64
+new v1_values val u64 !0x0034567812345678:u64
+new v2_values val u64 !0x1234567812345678:u64
+new v3_values val u128 !0x123456789123456789:u128
+new v4_values val u128 !0xffffffffffffffffffffff:u128
+new v5_values val u128 !0x10000000000000000000000:u128
+new v6_values val u128 !0x123456789123456789123456789:u128
+new v7_values val i128 !-0x123456789123456789123456789:i128
+new v8_values val u128 !0x1fffffffffffffffffffffffffe:u128
+new v9_values val u128 !0x1ffffffffffffffffffffffffff:u128
+new v10_values val u256 !0x1abcabcabcabcabcabcabcabcab:u256
+new v11_values val f64 !20015998341411:f64
+new v12_values val f64 !0x1234567812345678:f64
+new v13_values val f64 !-0x1234567812345678:f64
+new v14_values val f64 !0x123456789123456789123456789:f64
+new v15_values val f64 !-0x123456789123456789123456789:f64
+new v16_values val f64 !3.094850098213451e26:f64
+new v17_values val f64 !-3.094850098213451e26:f64
+endFn
+

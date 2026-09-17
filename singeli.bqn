@@ -123,8 +123,8 @@ numbers ← {kname⇐"number"
   InRange ← {1=⊑0⍋˜-˜´⟜(⌽𝕨)¨𝕩}
   FmtFloat ← ('¯'(⊢+=×'-'-⊣)•Repr){(∞>|)◶⟨"/0"∾˜·𝔽0(<->)⊢,𝔽⟩}
   MakeFmt ← {𝕊 Abs‿InRange‿ToSmall‿ToLarge: {
-    ⌊⊸≡𝕩 ? (a←Abs 𝕩) InRange 2⋆48‿64 ? 𝕩 InRange -⌾⊑2⋆63‿64 ?
-      ((𝕩≢a)/"-")∾"0x"∾da⊏˜⌽ 16‿16 f._repr ToLarge a ;
+    ⌊⊸≡𝕩 ? (a←Abs 𝕩) InRange 2⋆48‿105 ?
+      ((𝕩≢a)/"-")∾"0x"∾da⊏˜⌽ ⟨1⊸+•_while_{¬a InRange 0⋈2⋆4×𝕩} 16, 16⟩ f._repr ToLarge a ;
     FmtFloat ToSmall 𝕩
   }}
   FmtSmall‿FmtLarge ← MakeFmt¨ ⟨
