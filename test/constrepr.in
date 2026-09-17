@@ -1,0 +1,30 @@
+include 'skin/c'
+include 'skin/cext'
+oper ~~- ({T,b} => reinterpret{T,-b}) infix right 55
+def u128 = primtype{'u', 128}
+def u256 = primtype{'u', 256}
+def i128 = primtype{'i', 128}
+def i256 = primtype{'i', 256}
+fn big_nums() : void = {
+  values := tup{
+    u64 ~~ 0x123456789123,
+    u64 ~~ 0x34567812345678,
+    u64 ~~ 0x1234567812345678,
+    u128~~ 0x123456789123456789,
+    u128~~ 0xffffffffffffffffffffff,
+    u128~~ 0x10000000000000000000000,
+    u128~~ 0x123456789123456789123456789,
+    i128~~-0x123456789123456789123456789,
+    u128~~ 0x1fffffffffffffffffffffffffe,
+    u128~~ 0x1ffffffffffffffffffffffffff,
+    u256~~ 0x1abcabcabcabcabcabcabcabcab,
+    f64 ~~ 0x123456789123,
+    f64 ~~ 0x1234567812345678,
+    f64 ~~-0x1234567812345678,
+    f64 ~~ 0x123456789123456789123456789,
+    f64 ~~-0x123456789123456789123456789,
+    f64~~ (0x10000000000000000000000 + 0.5),
+    f64~~-(0x10000000000000000000000 + 0.5),
+  }
+  # bad:u256 = 0x123456789123456789123456789123456789 # bad
+}
